@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -35,14 +35,15 @@ class cli_statsQueue implements cliCommand
 
 	public function execute($parameters, $db)
 	{
+		if (Util::isMaintenanceMode()) return;
 		$timer = new Timer();
-		while ($timer->stop() < 65000) {
-			$processedKills = $db->query("select killID from zz_stats_queue limit 100", array(), 0);
-			if (count($processedKills) == 0) {
-				sleep(5);
-				continue;
-			}
-			foreach($processedKills as $row) {
+		while ($timer->stop() < 59000)
+		{
+			$processedKills = $db->query("SELECT killID FROM zz_stats_queue", array(), 0);
+			foreach($processedKills as $row)
+			{
+				if($timer->stop() > 65000) exit();
+
 				$killID = $row["killID"];
 				Stats::calcStats($killID, true);
 				// Add points and total value to the json stored in the database
@@ -51,23 +52,35 @@ class cli_statsQueue implements cliCommand
 				unset($json["_stringValue"]);
 				unset($json["zkb"]);
 				$stuff = $db->queryRow("select * from zz_participants where killID = :killID and isVictim = 1", array(":killID" => $killID), 0);
-				if ($stuff != null) {
+				if ($stuff != null)
+				{
+					StatsD::increment("statsQueue_processed");
+
 					$zkb = array();
 					$zkb["totalValue"] = $stuff["total_price"];
 					$zkb["points"] = $stuff["points"];
 					$hash = Db::queryField("select hash from zz_crest_killmail where killID = :killID and processed = 1", "hash", array(":killID" => $killID));
 					$zkb["source"] = $hash ? "CREST" : "API";
-					if ($hash) $zkb["hash"] = $hash;
+
+					if ($hash)
+						$zkb["hash"] = $hash;
+
 					$json["zkb"] = $zkb;
 
 					$raw = json_encode($json);
 					$db->execute("update zz_killmails set kill_json = :raw where killID = :killID", array(":killID" => $killID, ":raw" => $raw));
 				}
+
 				$db->execute("delete from zz_stats_queue where killID = :killID", array(":killID" => $killID));
 				$db->execute("insert ignore into zz_crest_queue values (:killID)", array(":killID" => $killID));
+
+				// Be social
 				Social::beSocial($killID);
-				if (class_exists("Stomp")) StompUtil::sendKill($killID);
+
+				if (class_exists("Stomp"))
+					StompUtil::sendKill($killID);
 			}
+			sleep(1);
 		}
 	}
 }

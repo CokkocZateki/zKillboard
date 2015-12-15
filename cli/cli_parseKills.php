@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,7 @@ class cli_parseKills implements cliCommand
 
 	public function execute($parameters, $db)
 	{
+		if (Util::isMaintenanceMode()) return;
 		global $debug, $parseAscending, $dbPersist;
 		// DB connection needs to persist because we're working with temporary tables..
 		$dbPersist = true;
@@ -77,10 +78,6 @@ class cli_parseKills implements cliCommand
 			// Parse order
 			$minMax = $parseAscending ? "min" : "max";
 
-			// If the price cache is updating, we shouldn't to the latest to oldest mails
-			if (date("Gi") < 105)
-				$minMax = "min"; // Override during CREST cache interval
-
 			// Select killIDs to process
 			$id = $db->queryField("SELECT $minMax(killID) killID FROM zz_killmails WHERE processed = 0 AND killID > 0", "killID", array(), 0);
 
@@ -100,6 +97,7 @@ class cli_parseKills implements cliCommand
 			$result[] = $db->queryRow("SELECT * FROM zz_killmails WHERE killID = :killID", array(":killID" => $id), 0);
 
 			$processedKills = array();
+			$npcProcess = array();
 			$cleanupKills = array();
 			// There is actually only one result, so no need for a foreach, but whatever..
 			foreach ($result as $row)
@@ -123,17 +121,20 @@ class cli_parseKills implements cliCommand
 				// Hash is already in the $row array, no need to fetch it from the DB unless we have to..
 				$hash = $row["hash"];
 
-				// Because of CREST caching AND the want for accurate prices, don't process the first hour
-				// of kills until after 01:05 each day
-				if (date("Gi") < 105 && $kill["killTime"] >= date("Y-m-d 00:00:00"))
+				// Lets just be sure it actually has a system id in the first place..
+				$regionID = Info::getRegionIDFromSystemID($kill["solarSystemID"]);
+
+				if($regionID == NULL)
 				{
-					sleep(1);
+					// The killmail is faulty as hell
+					$db->execute("UPDATE zz_killmails set processed = 2 WHERE killid = :killid", array(":killid" => $row["killID"]));
 					continue;
 				}
 
 				// Cleanup if we're reparsing
 				$cleanupKills[] = $killID;
 				$numKills++;
+
 				if ($debug)
 					Log::log("Processing kill: $killID");
 
@@ -161,50 +162,56 @@ class cli_parseKills implements cliCommand
 
 				}
 
-				// Do some validation on the kill
-				if (!self::validKill($kill))
-				{
-					$db->execute("UPDATE zz_killmails set processed = 3 WHERE killid = :killid", array(":killid" => $row["killID"]));
-					continue;
-				}
+				// Lets define if it's an NPC or not
+				$isNPC = self::isNPC($kill);
 
 				// Calculate costs
 				$totalCost = 0;
 				$itemInsertOrder = 0;
 				$totalCost += self::processItems($kill, $killID, $kill["items"], $itemInsertOrder);
-				$totalCost += self::processVictim($kill, $killID, $kill["victim"], false);
+				$totalCost += self::processVictim($kill, $killID, $kill["victim"]);
 
 				// Process the attacker
 				foreach ($kill["attackers"] as $attacker)
 					self::processAttacker($kill, $killID, $attacker, $kill["victim"]["shipTypeID"], $totalCost);
 
+				if($isNPC)
+					$db->execute("UPDATE zz_participants_temporary SET isNPC = 1 WHERE killID = :killID", array(":killID" => $killID));
+
 				// Calculate the points that the kill is worth
 				$points = Points::calculatePoints($killID, true);
 
 				// Insert it to the database
-				$db->execute("UPDATE zz_participants_temporary set points = :points, number_involved = :numI, total_price = :tp WHERE killID = :killID", array(":killID" => $killID, ":points" => $points, ":numI" => sizeof($kill["attackers"]), ":tp" => $totalCost));
+				$db->execute("UPDATE zz_participants_temporary set points = :points, number_involved = :numI, total_price = :tp WHERE killID = :killID", array(":killID" => $killID, ":points" => $points, ":numI" => count($kill["attackers"]), ":tp" => $totalCost));
 
 				// Pass the killID to the $processedKills array, so we can show how many kills we've done this cycle..
-				$processedKills[] = $killID;
+				if(!$isNPC)
+					$processedKills[] = $killID;
+				else
+					$npcProcess[] = $killID;
 			}
 
 			// If there are kills to clean up, we'll get rid of them here.. This should only be old manual mails that are now api verified tho
-			if (sizeof($cleanupKills))
+			if (count($cleanupKills) > 0)
 				$db->execute("delete FROM zz_participants WHERE killID in (" . implode(",", $cleanupKills) . ")");
 
 			// Insert all the data from the temporary table to the primary table, so people are happy!
 			$db->execute("INSERT IGNORE INTO zz_participants SELECT * FROM zz_participants_temporary");
 
 			// Insert data into various tables, tell the stats queue it needs to update some kills and set mails as processed
-			$numProcessed = sizeof($processedKills);
-			if ($numProcessed)
+			$numProcessed = count($processedKills);
+			if ($numProcessed > 0)
 			{
 				$db->execute("INSERT IGNORE INTO zz_stats_queue values (" . implode("), (", $processedKills) . ")");
 				$db->execute("UPDATE zz_killmails set processed = 1 WHERE killID in (" . implode(",", $processedKills) . ")");
 			}
+			$numNPC = count($npcProcess);
+			if($numNPC > 0)
+				$db->execute("UPDATE zz_killmails set processed = 1 WHERE killID in (" . implode(",", $npcProcess) . ")");
 		}
 		if ($numKills > 0)
 		{
+			StatsD::gauge("kills_processed", $numKills);
 			Log::log("Processed: $numKills kill(s)");
 			$db->execute("INSERT INTO zz_storage (locker, contents) VALUES ('KillsAdded', :num) ON DUPLICATE KEY UPDATE contents = contents + :num", array(":num" => $numKills));
 		}
@@ -217,37 +224,19 @@ class cli_parseKills implements cliCommand
 		$db->execute("DROP TABLE IF EXISTS zz_participants_temporary");
 	}
 
-	private static function validKill(&$kill)
+	private static function isNPC(&$kill)
 	{
-		global $db;
-		$victimCorp = $kill["victim"]["corporationID"] < 1000999 ? 0 : $kill["victim"]["corporationID"];
-		$victimAlli = $kill["victim"]["allianceID"];
-
-		$npcOnly = true;
-		$blueOnBlue = true;
+		$npc = false;
 		foreach ($kill["attackers"] as $attacker)
-		{
-			$attackerGroupID = Info::getGroupID($attacker["shipTypeID"]);
-			// A tower is involved
-			if ($attackerGroupID == 365)
-				return true;
+			$npc = $attacker["characterID"] == 0 && ($attacker["corporationID"] < 1999999 && $attacker["corporationID"] != 1000125) ? true : false;
 
-			// Don't process the kill if it's NPC only
-			$npcOnly &= $attacker["characterID"] == 0 && ($attacker["corporationID"] < 1999999 && $attacker["corporationID"] != 1000125);
-
-			// Check for blue on blue
-			if ($attacker["characterID"] != 0) $blueOnBlue &= $victimCorp == $attacker["corporationID"] && $victimAlli == $attacker["allianceID"];
-		}
-		if ($npcOnly /*|| $blueOnBlue*/)
-			return false;
-
-		return true;
+		return $npc;
 	}
 
 	/**
 	 * @param boolean $isNpcVictim
 	 */
-	private static function processVictim(&$kill, $killID, &$victim, $isNpcVictim)
+	private static function processVictim(&$kill, $killID, &$victim)
 	{
 		global $db;
 		$dttm = (string) $kill["killTime"];
@@ -256,28 +245,29 @@ class cli_parseKills implements cliCommand
 		$groupID = Info::getGroupID($victim["shipTypeID"]);
 		$regionID = Info::getRegionIDFromSystemID($kill["solarSystemID"]);
 
-		if (!$isNpcVictim) $db->execute("
-				INSERT INTO zz_participants_temporary
-				(killID, solarSystemID, regionID, isVictim, shipTypeID, groupID, shipPrice, damage, factionID, allianceID,
-				 corporationID, characterID, dttm, vGroupID)
-				values
-				(:killID, :solarSystemID, :regionID, 1, :shipTypeID, :groupID, :shipPrice, :damageTaken, :factionID, :allianceID,
-				 :corporationID, :characterID, :dttm, :vGroupID)",
-				array(
-				       ":killID" => $killID,
-				       ":solarSystemID" => $kill["solarSystemID"],
-				       ":regionID" => $regionID,
-				       ":shipTypeID" => $victim["shipTypeID"],
-				       ":groupID" => $groupID,
-				       ":vGroupID" => $groupID,
-				       ":shipPrice" => $shipPrice,
-				       ":damageTaken" => $victim["damageTaken"],
-				       ":factionID" => $victim["factionID"],
-				       ":allianceID" => $victim["allianceID"],
-				       ":corporationID" => $victim["corporationID"],
-				       ":characterID" => $victim["characterID"],
-				       ":dttm" => $dttm,
-				      ));
+		$db->execute("
+			INSERT INTO zz_participants_temporary
+			(killID, solarSystemID, regionID, isVictim, shipTypeID, groupID, shipPrice, damage, factionID, allianceID,
+			 corporationID, characterID, dttm, vGroupID)
+			values
+			(:killID, :solarSystemID, :regionID, 1, :shipTypeID, :groupID, :shipPrice, :damageTaken, :factionID, :allianceID,
+			 :corporationID, :characterID, :dttm, :vGroupID)",
+			array(
+				":killID" => $killID,
+				":solarSystemID" => $kill["solarSystemID"],
+				":regionID" => $regionID,
+				":shipTypeID" => $victim["shipTypeID"],
+				":groupID" => $groupID,
+				":vGroupID" => $groupID,
+				":shipPrice" => $shipPrice,
+				":damageTaken" => $victim["damageTaken"],
+				":factionID" => $victim["factionID"],
+				":allianceID" => $victim["allianceID"],
+				":corporationID" => $victim["corporationID"],
+				":characterID" => $victim["characterID"],
+				":dttm" => $dttm,
+			)
+		);
 
 		Info::addChar($victim["characterID"], $victim["characterName"]);
 		Info::addCorp($victim["corporationID"], $victim["corporationName"]);
@@ -296,29 +286,30 @@ class cli_parseKills implements cliCommand
 		$dttm = (string) $kill["killTime"];
 
 		$db->execute("
-				INSERT INTO zz_participants_temporary
-				(killID, solarSystemID, regionID, isVictim, characterID, corporationID, allianceID, total_price, vGroupID,
-				 factionID, damage, finalBlow, weaponTypeID, shipTypeID, groupID, dttm)
-				values
-				(:killID, :solarSystemID, :regionID, 0, :characterID, :corporationID, :allianceID, :total, :vGroupID,
-				 :factionID, :damageDone, :finalBlow, :weaponTypeID, :shipTypeID, :groupID, :dttm)",
-				array(
-				       ":killID" => $killID,
-				       ":solarSystemID" => $kill["solarSystemID"],
-				       ":regionID" => $regionID,
-				       ":characterID" => $attacker["characterID"],
-				       ":corporationID" => $attacker["corporationID"],
-				       ":allianceID" => $attacker["allianceID"],
-				       ":factionID" => $attacker["factionID"],
-				       ":damageDone" => $attacker["damageDone"],
-				       ":finalBlow" => $attacker["finalBlow"],
-				       ":weaponTypeID" => $attacker["weaponTypeID"],
-				       ":shipTypeID" => $attacker["shipTypeID"],
-				       ":groupID" => $attackerGroupID,
-				       ":dttm" => $dttm,
-				       ":total" => $totalCost,
-				       ":vGroupID" => $victimGroupID,
-				      ));
+			INSERT INTO zz_participants_temporary
+			(killID, solarSystemID, regionID, isVictim, characterID, corporationID, allianceID, total_price, vGroupID,
+			factionID, damage, finalBlow, weaponTypeID, shipTypeID, groupID, dttm)
+			values
+			(:killID, :solarSystemID, :regionID, 0, :characterID, :corporationID, :allianceID, :total, :vGroupID,
+			:factionID, :damageDone, :finalBlow, :weaponTypeID, :shipTypeID, :groupID, :dttm)",
+			array(
+				":killID" => $killID,
+				":solarSystemID" => $kill["solarSystemID"],
+				":regionID" => $regionID,
+				":characterID" => $attacker["characterID"],
+				":corporationID" => $attacker["corporationID"],
+				":allianceID" => $attacker["allianceID"],
+				":factionID" => $attacker["factionID"],
+				":damageDone" => $attacker["damageDone"],
+				":finalBlow" => $attacker["finalBlow"],
+				":weaponTypeID" => $attacker["weaponTypeID"],
+				":shipTypeID" => $attacker["shipTypeID"],
+				":groupID" => $attackerGroupID,
+				":dttm" => $dttm,
+				":total" => $totalCost,
+				":vGroupID" => $victimGroupID,
+			)
+		);
 		Info::addChar($attacker["characterID"], $attacker["characterName"]);
 		Info::addCorp($attacker["corporationID"], $attacker["corporationName"]);
 		Info::addAlli($attacker["allianceID"], $attacker["allianceName"]);
@@ -351,17 +342,16 @@ class cli_parseKills implements cliCommand
 		global $db;
 
 		$dttm = (string) $kill["killTime"];
-
-		$itemName = Db::queryField("select typeName from ccp_invTypes where typeID = :typeID", "typeName", array(":typeID" => $item["typeID"]));
+		$typeID = $item["typeID"];
+		$itemName = Db::queryField("select typeName from ccp_invTypes where typeID = :typeID", "typeName", array(":typeID" => $typeID));
 		if ($itemName == null)
 			$itemName = "TypeID $typeID";
 
-		$typeID = $item["typeID"];
 
 		if ($item["typeID"] == 33329 && $item["flag"] == 89)
 			$price = 0.01; // Golden pod implant can't be destroyed
 		else
-			$price = Price::getItemPrice($typeID, $dttm, true);
+			$price = Price::getItemPrice($typeID, $dttm);
 
 		if ($isCargo && strpos($itemName, "Blueprint") !== false)
 			$item["singleton"] = 2;

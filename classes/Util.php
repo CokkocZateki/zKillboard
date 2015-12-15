@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,7 @@ class Util
 
 	public static function getCrest($url)
 	{
+		StatsD::increment("crest_calls");
 		\Perry\Setup::$fetcherOptions = ["connect_timeout" => 15, "timeout" => 30];
 		return \Perry\Perry::fromUrl($url);
 	}
@@ -54,8 +55,11 @@ class Util
 
 		if (static::is904Error()) 
 		{
-			if (php_sapi_name() == 'cli') exit();
-			return null; // Web requests shouldn't be hitting the API...
+			// Web requests shouldn't be hitting the API...
+			if (php_sapi_name() == 'cli')
+				exit();
+
+			return null;
 		}
 
 		\Pheal\Core\Config::getInstance()->http_method = "curl";
@@ -70,13 +74,21 @@ class Util
 		\Pheal\Core\Config::getInstance()->http_keepalive = true; // default 15 seconds
 		\Pheal\Core\Config::getInstance()->http_keepalive = 10; // KeepAliveTimeout in seconds
 		\Pheal\Core\Config::getInstance()->http_timeout = 30;
-		if ($phealCacheLocation != null) \Pheal\Core\Config::getInstance()->cache = new \Pheal\Cache\FileStorage($phealCacheLocation);
+		if ($phealCacheLocation != null)
+			\Pheal\Core\Config::getInstance()->cache = new \Pheal\Cache\FileStorage($phealCacheLocation); // Implement own cache class that calls statsD
 		\Pheal\Core\Config::getInstance()->log = new PhealLogger();
 		\Pheal\Core\Config::getInstance()->api_customkeys = true;
 		\Pheal\Core\Config::getInstance()->api_base = $apiServer;
 
-		if ($keyID != null && $vCode != null) $pheal = new \Pheal\Pheal($keyID, $vCode);
-		else $pheal = new \Pheal\Pheal();
+		if ($keyID != null && $vCode != null)
+			$pheal = new \Pheal\Pheal($keyID, $vCode);
+		else
+			$pheal = new \Pheal\Pheal();
+
+		// Stats gathering, sadly phealng has no way of telling us if we're hitting the cache or not.
+		StatsD::increment("ccp_api");
+
+		// Return the API data to whomever requested it.
 		return $pheal;
 	}
 
@@ -160,6 +172,9 @@ class Util
 		{
 			$value = $currentIndex + 1 < count($split) ? $split[$currentIndex + 1] : null;
 			switch ($key) {
+				case "groupID":
+					// do nothing
+				break;
 				case "kills":
 				case "losses":
 				case "w-space":
@@ -168,31 +183,23 @@ class Util
 				case "highsec":
 				case "solo":
 					$parameters[$key] = true;
-					break;
-				case "character":
+				break;
 				case "characterID":
-				case "corporation":
 				case "corporationID":
-				case "alliance":
 				case "allianceID":
-				case "faction":
 				case "factionID":
-				case "ship":
 				case "shipID":
 				case "shipTypeID":
-				case "group":
-				case "groupID":
-				case "system":
 				case "solarSystemID":
 				case "systemID":
-				case "region":
 				case "regionID":
 					if ($value != null) {
 						if (strpos($key, "ID") === false) $key = $key . "ID";
 						if ($key == "systemID") $key = "solarSystemID";
 						else if ($key == "shipID") $key = "shipTypeID";
 						$exploded = explode(",", $value);
-						if (self::endsWith("ID", $key)) foreach($exploded as $aValue) {
+						foreach($exploded as $aValue)
+						{
 							if ($aValue != (int) $aValue || ((int) $aValue) == 0) throw new Exception("Invalid ID passed: $aValue");
 						}
 						if (sizeof($exploded) > 10) throw new Exception("Too many IDs! Max: 10");
@@ -206,8 +213,8 @@ class Util
 				break;
 				case "orderDirection":
 					if (!($value == "asc" || $value == "desc")) throw new Exception("Invalid orderDirection!  Allowed: asc, desc");
-					$parameters[$key] = "desc";
-					$parameters[$key] = $value;
+					$parameters[$key] = "desc"; // only desc
+					//$parameters[$key] = $value;
 				break;
 				case "pastSeconds":
 					$value = (int) $value;
@@ -222,8 +229,8 @@ class Util
 				break;
 				case "limit":
 					$value = (int) $value;
-					if ($value < 200) $parameters["limit"] = $value;
-					elseif($value > 200) $parameters["limit"] = 200;
+					if ($value <= 1000) $parameters["limit"] = $value;
+					elseif($value > 1000) $parameters["limit"] = 1000;
 					elseif($value <= 0) $parameters["limit"] = 1;
 				break;
 				case "beforeKillID":
@@ -240,6 +247,18 @@ class Util
 					$parameters[$key] = true;
 				break;
 				case "pretty":
+					$parameters[$key] = true;
+				break;
+				case "no-attackers":
+					$parameters[$key] = true;
+				break;
+				case "no-items":
+					$parameters[$key] = true;
+				break;
+				case "finalblow-only":
+					$parameters[$key] = true;
+				break;
+				case "api":
 					$parameters[$key] = true;
 				break;
 				default:
@@ -270,7 +289,34 @@ class Util
 			foreach ($legitEntities as $entity) {
 				$legit |= in_array($entity, array_keys($parameters));
 			}
-			if (!$legit) throw new Exception("page > 10 not allowed for this modifier type, please see API documentation");
+			// The API doesn't handle Exceptions that well, so we have to output json/xml for them..
+			if (!$legit)
+			{
+				$date = date("Y-m-d H:i:s");
+				$cachedUntil = date("Y-m-d H:i:s", time() + 3600);
+				if(stristr($_SERVER["REQUEST_URI"], "xml"))
+				{
+					$data = "<?xml version=\"1.0\" encoding=\"UTF-8\"?" . ">"; // separating the ? and > allows vi to still color format code nicely
+					$data .= "<eveapi version=\"2\" zkbapi=\"1\">";
+					$data .= "<currentTime>$date</currentTime>";
+					$data .= "<result>";
+					$data .= "<error>A maximum of 10 pages is allowed for the modifier type you are using.</error>";
+					$data .= "</result>";
+					$data .= "<cachedUntil>$cachedUntil</cachedUntil>";
+					$data .= "</eveapi>";
+					header("Content-type: text/xml; charset=utf-8");
+				}
+				else
+				{
+					header("Content-type: application/json; charset=utf-8");
+					$data = json_encode(array("Error" => "A maximum of 10 pages is allowed for the modifier type you are using.", "cachedUntil" => $cachedUntil));
+				}
+				header("Retry-After: " . $cachedUntil . " GMT");
+				header("HTTP/1.1 409 Conflict");
+				header("Etag: ".(md5(serialize($data))));
+				echo $data;
+				die();
+			}
 		}
 		return $parameters;
 	}
@@ -320,68 +366,6 @@ class Util
 	public static function getLongMonth($month)
 	{
 		return self::$longMonths[$month];
-	}
-
-	public static function scrapeCheck()
-	{
-		global $apiWhiteList, $maxRequestsPerHour;
-		$maxRequestsPerHour = isset($maxRequestsPerHour) ? $maxRequestsPerHour : 360;
-
-		$uri = substr($_SERVER["REQUEST_URI"], 0, 256);
-        	$ip = substr(IP::get(), 0, 64);
-        	Db::execute("insert into zz_scrape_prevention values (:ip, :uri, now())", array(":ip" => $ip, ":uri" => $uri));
-
-		if(!in_array($ip, $apiWhiteList))
-		{
-			$count = Db::queryField("select count(*) count from zz_scrape_prevention where ip = :ip and dttm >= date_sub(now(), interval 1 hour)", "count", array(":ip" => $ip), 0);
-
-			if($count > $maxRequestsPerHour)
-			{
-				$date = date("Y-m-d H:i:s");
-				$cachedUntil = date("Y-m-d H:i:s", time() + 3600);
-				if(stristr($_SERVER["REQUEST_URI"], "xml"))
-				{
-					$data = "<?xml version=\"1.0\" encoding=\"UTF-8\"?" . ">"; // separating the ? and > allows vi to still color format code nicely
-					$data .= "<eveapi version=\"2\" zkbapi=\"1\">";
-					$data .= "<currentTime>$date</currentTime>";
-					$data .= "<result>";
-					$data .= "<error>You have too many API requests in the last hour.  You are allowed a maximum of $maxRequestsPerHour requests.</error>";
-					$data .= "</result>";
-					$data .= "<cachedUntil>$cachedUntil</cachedUntil>";
-					$data .= "</eveapi>";
-					header("Content-type: text/xml; charset=utf-8");
-				}
-				else
-				{
-					header("Content-type: application/json; charset=utf-8");
-					$data = json_encode(array("Error" => "You have too many API requests in the last hour.  You are allowed a maximum of $maxRequestsPerHour requests.", "cachedUntil" => $cachedUntil));
-				}
-				header("X-Bin-Request-Count: ". $count);
-				header("X-Bin-Max-Requests: ". $maxRequestsPerHour);
-				header("Retry-After: " . $cachedUntil . " GMT");
-				header("HTTP/1.1 429 Too Many Requests");
-				header("Etag: ".(md5(serialize($data))));
-				echo $data;
-				die();
-			}
-			header("X-Bin-Request-Count: ". $count);
-			header("X-Bin-Max-Requests: ". $maxRequestsPerHour);
-		}
-	}
-
-	public static function isValidCallback($subject)
-	{
-		$identifier_syntax = '/^[$_\p{L}][$_\p{L}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\x{200C}\x{200D}]*+$/u';
-
-		$reserved_words = array('break', 'do', 'instanceof', 'typeof', 'case',
-				'else', 'new', 'var', 'catch', 'finally', 'return', 'void', 'continue', 
-				'for', 'switch', 'while', 'debugger', 'function', 'this', 'with', 
-				'default', 'if', 'throw', 'delete', 'in', 'try', 'class', 'enum', 
-				'extends', 'super', 'const', 'export', 'import', 'implements', 'let', 
-				'private', 'public', 'yield', 'interface', 'package', 'protected', 
-				'static', 'null', 'true', 'false');
-
-		return preg_match($identifier_syntax, $subject) && ! in_array(mb_strtolower($subject, 'UTF-8'), $reserved_words);
 	}
 
 	public static function deleteKill($killID)
@@ -453,7 +437,7 @@ class Util
 				)
 			);
 
-			if(count($ipsAvailable) > 0)
+			if(count($ipsAvailable) > 1)
 			{
 				$ip = $ipsAvailable[time() % count($ipsAvailable)];
 				curl_setopt($curl, CURLOPT_INTERFACE, $ip);
@@ -524,32 +508,10 @@ class Util
 	public static function informationPages()
 	{
 		global $baseDir, $theme;
-		$mdDir = $baseDir . "information/";
-		$data = scandir($mdDir);
-
-		foreach($data as $key =>  $file)
-		{
-			if($file == "." || $file == "..")
-				continue;
-
-			if(is_dir($mdDir . $file))
-			{
-				$subData = scandir($mdDir . $file);
-				foreach($subData as $key => $subDir)
-				{
-					if($subDir == "." || $subDir == "..")
-						continue;
-
-					$pages[$file][] = array("name" => strtolower(str_replace(".md", "", $subDir)), "path" => "$mdDir$file/$subDir");
-				}
-			}
-			else
-				$pages[strtolower(str_replace(".md", "", $file))][] = array("name" => strtolower(str_replace(".md", "", $file)), "path" => "$mdDir$file");
-		}
-
-		// Look if the theme has any information pages it wants to present
 		$tDir = $baseDir . "themes/" . $theme . "/information/";
 		$data = null;
+		$pages = array();
+
 		if(is_dir($tDir))
 			$data = scandir($tDir);
 

@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -42,6 +42,7 @@ class cli_populateAlliances implements cliCommand
 
 	private static function populateAlliances($db)
 	{
+		if (Util::isMaintenanceMode()) return;
 		if (Util::is904Error()) return;
 		//CLI::out("Repopulating the alliance table");
 		Log::log("Repopulating alliance tables.");
@@ -58,8 +59,8 @@ class cli_populateAlliances implements cliCommand
 			$exception = $ex;
 		}
 		if ($list != null && sizeof($list->alliances) > 0) {
-			$db->execute("update zz_alliances set memberCount = 0");
-			$db->execute("update zz_corporations set allianceID = 0");
+			$db->execute("UPDATE zz_alliances SET memberCount = 0 WHERE memberCount > 0");
+			$db->execute("UPDATE zz_corporations SET allianceID = 0 WHERE allianceID != 0");
 			foreach ($list->alliances as $alliance) {
 				$allianceCount++;
 				$allianceID = $alliance['allianceID'];

@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+global $rawKillmailParser;
+
 $error = "";
 
 if($_POST)
@@ -24,6 +26,7 @@ if($_POST)
 	$vcode = Util::getPost("vcode");
 	$killmail = Util::getPost("killmail");
 	$killmailurl = Util::getPost("killmailurl");
+	$rawKillmail = Util::getPost("rawkillmail");
 
 	// Apikey stuff
 	if($keyid || $vcode)
@@ -40,6 +43,7 @@ if($_POST)
 		}
 	}
 
+	// Crest Killmail
 	if ($killmailurl)
 	{
 		// Looks like http://public-crest.eveonline.com/killmails/30290604/787fb3714062f1700560d4a83ce32c67640b1797/
@@ -68,10 +72,31 @@ if($_POST)
 					else if ($processed == 3) $error = "Only PvP mails are accepted, the mail you just submitted was a PvE killmail.";
 					else if (date("Gi") < 105) $error = "Between 00:00 and 01:05 no kills are processed while we wait for CCP's Market CREST cache to clear... However, the kill has been stored and will be processed at 01:05";
 					else usleep(450000);
-				} while ($timer->stop() < 45000 && $error == "");
-				if ($error == "") $error = "We waited 45 seconds for the kill to be processed but the server must be busy atm, please wait!";
+				} while ($timer->stop() < 60000 && $error == "");
+				if ($error == "") $error = "We waited 60 seconds for the kill to be processed but the server must be busy atm, please wait!";
 			}
 		}
+	}
+
+	// Raw manual killmail
+	if($rawKillmailParser && $rawKillmail)
+	{
+		$userData = User::getUserInfo();
+		if(User::isLoggedIn())
+		{
+			$return = Parser::parseRaw($killmail, $userData["id"]);
+
+			if(isset($return["success"]))
+				$app->redirect("/detail/" . $return["success"] . "/");
+
+			if(isset($return["dupe"]))
+				$app->redirect("/detail/" . $return["dupe"] . "/");
+
+			if(isset($return["error"]))
+				$error = $return["error"];
+		}
+		else
+			$error = "sorry, you need to be logged in to post raw killmails";
 	}
 }
 

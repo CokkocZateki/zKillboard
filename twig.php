@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -23,7 +23,7 @@ $app->view(new \Slim\Views\Twig());
 $viewtheme = null;
 $accountBalance = 0;
 $userShowAds = true;
-if(User::isLoggedIn()) 
+if(User::isLoggedIn())
 {
 	$accountBalance = User::getBalance(User::getUserID());
 	$adFreeUntil = UserConfig::get("adFreeUntil", null);
@@ -68,6 +68,9 @@ foreach($explode as $key => $ex)
 
 }
 
+$twig->addGlobal("isMobile", $isMobile);
+$twig->addGlobal("isTablet", $isTablet);
+
 $twig->addGlobal('requestUriPager', implode("/", $expager));
 $actualURI = implode("/", $explode);
 $twig->addGlobal("actualURI", $actualURI);
@@ -81,6 +84,7 @@ $twig->addGlobal("image_alliance", $imageServer."Alliance/");
 $twig->addGlobal("image_item", $imageServer."Type/");
 $twig->addGlobal("image_ship", $imageServer."Render/");
 
+$twig->addGlobal("maxRequestsPerHour", $maxRequestsPerHour);
 $twig->addGlobal("siteurl", $baseAddr);
 $twig->addGlobal("fullsiteurl", $fullAddr);
 $twig->addGlobal("requesturi", $_SERVER["REQUEST_URI"]);
@@ -100,31 +104,14 @@ foreach($noAdPages as $noAdPage) {
 	$showAds &= !Util::startsWith($uri, $noAdPage);
 	$showAds &= $userShowAds;
 }
+
+$twig->addGlobal("showAds", $showAds);
 $twig->addglobal("showAnalytics", $showAnalytics);
 $twig->addGlobal("showFacebook", $showFacebook && UserConfig::get("showFacebook", true));
 if($disqus)
     $twig->addGlobal("disqusShortName", $disqusShortName);
 if($disqusSSO)
     $twig->addglobal("disqusSSO", Disqus::init());
-
-// User's account balance
-$twig->addGlobal("accountBalance", $accountBalance);
-$twig->addGlobal("adFreeMonthCost", $adFreeMonthCost);
-
-// Display a banner?
-$banner = Db::queryField("select banner from zz_subdomains where (subdomain = :server or alias = :server)", "banner", array(":server" => $_SERVER["SERVER_NAME"]), 60);
-if ($banner)
-{
-	$banner = str_replace("http://i.imgur.com/", "https://i.imgur.com/", $banner);
-	$banner = str_replace("http://imgur.com/", "https://imgur.com/", $banner);
-	$twig->addGlobal("headerImage", $banner);
-}
-
-$adfree = Db::queryField("select count(*) count from zz_subdomains where adfreeUntil >= now() and subdomain = :server", "count", array(":server" => $_SERVER["SERVER_NAME"]), 60);
-$adfree |= Db::queryField("select count(*) count from zz_subdomains where adfreeUntil >= now() and alias = :server", "count", array(":server" => $_SERVER["SERVER_NAME"]), 60);
-if ($adfree) $twig->addGlobal("showAds", false);
-else $twig->addGlobal("showAds", $showAds);
-Subdomains::getSubdomainParameters($_SERVER["SERVER_NAME"]);
 
 $twig->addGlobal("KillboardName", (isset($killboardName) ? $killboardName : "zKillboard"));
 
@@ -134,11 +121,8 @@ $twig->addGlobal("style", UserConfig::get("style", $style));
 // Set the theme global for twig.
 $twig->addGlobal("theme", UserConfig::get("theme", $theme));
 
-// Detect mobile devices
-$detect = new Mobile_Detect();
-$twig->addGlobal("isMobile", ($detect->isMobile() ? true : false));
-$twig->addGlobal("isTablet", ($detect->isTablet() ? true : false));
-
+// Raw killmail
+$twig->addGlobal("rawKillmail", $rawKillmailParser);
 $twig->addExtension(new UserGlobals());
 
 $twig->addFunction(new Twig_SimpleFunction("pageTimer", "Util::pageTimer"));

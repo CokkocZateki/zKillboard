@@ -35,8 +35,9 @@ class cli_every15 implements cliCommand
 
 	public function execute($parameters, $db)
 	{
+		if (Util::isMaintenanceMode()) return;
 		$minute = date("i");
-				if ($minute % 15 != 0) return;
+				if (!in_array("-f", $parameters) && $minute != 15) return;
 
 		global $baseDir;
 
@@ -45,9 +46,6 @@ class cli_every15 implements cliCommand
 		$p["limit"] = 10;
 		$p["pastSeconds"] = $numDays * 86400;
 		$p["kills"] = true;
-
-		Storage::store("Kills5b+", json_encode(Kills::getKills(array("iskValue" => 5000000000), true, false)));
-		Storage::store("Kills10b+", json_encode(Kills::getKills(array("iskValue" => 10000000000), true, false)));
 
 		Storage::store("TopChars", json_encode(Info::doMakeCommon("Top Characters", "characterID", Stats::getTopPilots($p))));
 		Storage::store("TopCorps", json_encode(Info::doMakeCommon("Top Corporations", "corporationID", Stats::getTopCorps($p))));
@@ -62,8 +60,9 @@ class cli_every15 implements cliCommand
 		$cache = new FileCache($baseDir . "/cache/related/");
 		$cache->cleanUp();
 
-		// Cleanup the overall fileCache
+		// Cleanup the overall file cache
 		$fc = new FileCache();
 		$fc->cleanup();
+
 	}
 }

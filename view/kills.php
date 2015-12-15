@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -24,10 +24,10 @@ if ($page > $maxPage && $type != '') $app->redirect("/kills/$type/page/$maxPage/
 switch($type)
 {
 	case "5b":
-		$kills = Kills::getKillsDetails(json_decode(Storage::retrieve("Kills5b+", "[]"), true));
+		$kills = Kills::getKills(array("iskValue" => 5000000000, "page" => $page));
 	break;
 	case "10b":
-		$kills = Kills::getKillsDetails(json_decode(Storage::retrieve("Kills10b+", "[]"), true));
+		$kills = Kills::getKills(array("iskValue" => 10000000000, "page" => $page));
 	break;
 	case "bigkills":
 		$kills = Kills::getKills(array("groupID" => array(547,485,513,902,941,30, 659), "limit" => $limit, "cacheTime" => 300, "losses" => true, "page" => $page));
@@ -82,19 +82,19 @@ switch($type)
 		$kills = Kills::getKills(array("groupID" => "351210", "limit" => $limit, "cacheTime" => 300, "losses" => true, "page" => $page));
 	break;
 	case "lowsec":
-		$kills = Kills::getKills(array("lowsec" => true, "page" => $page));
+		$kills = Kills::getKills(array("lowsec" => true, "page" => $page, "losses" => true));
 	break;
 	case "highsec":
-		$kills = Kills::getKills(array("highsec" => true, "page" => $page));
+		$kills = Kills::getKills(array("highsec" => true, "page" => $page, "losses" => true));
 	break;
 	case "nullsec":
-		$kills = Kills::getKills(array("nullsec" => true, "page" => $page));
+		$kills = Kills::getKills(array("nullsec" => true, "page" => $page, "losses" => true));
 	break;
 	case "w-space":
-		$kills = Kills::getKills(array("w-space" => true, "page" => $page));
+		$kills = Kills::getKills(array("w-space" => true, "page" => $page, "losses" => true));
 	break;
 	default:
-		$kills = Kills::getKills(array("combined" => true, "page" => $page));
+		$kills = Kills::getKills(array("combined" => true, "page" => $page, "losses" => true));
 	break;
 }
 

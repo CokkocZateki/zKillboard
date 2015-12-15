@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -30,12 +30,11 @@ class cli_calculateAllTimeStatsAndRanks implements cliCommand
 
 	public function getCronInfo()
 	{
-		return array(0 => "ranks");
+		return array(86400 => "ranks");
 	}
 
 	public function execute($parameters, $db)
 	{
-		if (date("Gi") != 115 && !in_array('-f', $parameters)) return; // Run at 01:15
 		if (sizeof($parameters) == 0 || $parameters[0] == "") CLI::out("Usage: |g|recentStatsAndRanks <type>|n| To see a list of commands, use: |g|methods calculateAllTimeStatsAndRanks", true);
 		$command = $parameters[0];
 
@@ -179,12 +178,31 @@ class cli_calculateAllTimeStatsAndRanks implements cliCommand
 					PRIMARY KEY (`killID`,`groupName`,`groupNum`,`groupID`)
 					) ENGINE=InnoDB");
 
-		$db->execute("insert ignore into zz_stats_temporary select killID, '$type', $column, groupID, points, total_price from zz_participants where $column != 0 and isVictim = 1 and characterID != 0");
+		$db->execute("insert ignore into zz_stats_temporary
+			(
+				select killID, '$type', $column, groupID, points, total_price
+				from zz_participants
+				where $column != 0
+				and isVictim = 1
+				and characterID != 0
+				and isNPC = 0
+			)
+		");
 		$db->execute("replace into zz_stats (type, typeID, groupID, lost, pointsLost, iskLost) select groupName, groupNum, groupID, count(killID), sum(points), sum(price) from zz_stats_temporary group by 1, 2, 3");
+		$db->execute("delete from zz_stats where type = :type", array(":type" => $type));
 
 		if ($calcKills) {
 			$db->execute("truncate table zz_stats_temporary");
-			$db->execute("insert ignore into zz_stats_temporary select killID, '$type', $column, vGroupID, points, total_price from zz_participants where $column != 0 and isVictim = 0 and characterID != 0");
+			$db->execute("insert ignore into zz_stats_temporary
+				(
+					select killID, '$type', $column, vGroupID, points, total_price
+					from zz_participants
+					where $column != 0
+					and isVictim = 0
+					and characterID != 0
+					and isNPC = 0
+				)
+			");
 			$db->execute("insert into zz_stats (type, typeID, groupID, destroyed, pointsDestroyed, iskDestroyed) (select groupName, groupNum, groupID, count(killID), sum(points), sum(price) from zz_stats_temporary group by 1, 2, 3) on duplicate key update destroyed = values(destroyed), pointsDestroyed = values(pointsDestroyed), iskDestroyed = values(iskDestroyed)");
 		}
 

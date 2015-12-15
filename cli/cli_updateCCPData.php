@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -52,7 +52,7 @@ class cli_updateCCPData implements cliCommand
 		if($lastSeenMD5 != $md5)
 		{
 			CLI::out("|g|Updating the ccp_ database tables with the latest release from fuzzwork.co.uk|n|");
-			$dbFiles = array("dgmAttributeCategories", "dgmAttributeTypes", "dgmEffects", "dgmTypeAttributes", "dgmTypeEffects", "invFlags", "invGroups", "invTypes", "mapDenormalize", "mapRegions", "mapSolarSystems");
+			$dbFiles = array("dgmAttributeCategories", "dgmAttributeTypes", "dgmEffects", "dgmTypeAttributes", "dgmTypeEffects", "invFlags", "invGroups", "mapDenormalize", "mapRegions", "mapSolarSystems");
 			$type = ".sql.bz2";
 
 			// Now run through each db table, and insert them !
@@ -61,6 +61,7 @@ class cli_updateCCPData implements cliCommand
 				CLI::out("|g|Importing:|n| $file");
 				$dataURL = $url . "latest/" . $file . $type;
 
+				echo $dataURL."\n";
 				// Get and extract, it's simpler to use execs for this, than to actually do it with php
 				try
 				{
@@ -82,23 +83,17 @@ class cli_updateCCPData implements cliCommand
 					$name = "systems";
 
 				if(isset($name))
-					$data = str_replace($file, "ccp_$name", $data);
+					$data = str_replace("`" . $file . "`", "`ccp_" . $name . "`", $data);
 				else
-					$data = str_replace($file, "ccp_$file", $data);
+					$data = str_replace("`" . $file . "`", "`ccp_" . $file . "`", $data);
 
-				// Store the data as an sql file
-				file_put_contents($cacheDir . "/temporary.sql", $data);
+				$dataParts = explode(";\n", $data);
 
-				// Create the exec line
-				if(isset($dbHost))
-					$execLine = "mysql -u$dbUser -p$dbPassword -h $dbHost $dbName < $cacheDir/temporary.sql";
-				elseif(isset($dbSocket))
-					$execLine = "mysql -u$dbUser -p$dbPassword -S $dbSocket $dbName < $cacheDir/temporary.sql";
-				// Now we execute the exec line.. It's not ideal, but it works..
-				exec($execLine);
-
-				// Delete the temporary file
-				unlink("$cacheDir/temporary.sql");
+				foreach($dataParts as $q)
+				{
+					$query = $q . ";";
+					$db->execute($query);
+				}
 
 				// Delete the .sql file
 				unlink("$cacheDir/$file.sql");

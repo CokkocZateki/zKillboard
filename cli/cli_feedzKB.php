@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -55,7 +55,8 @@ class cli_feedzKB implements cliCommand
 				if ($lastKillTime == "") $lastKillTime = null;
 				$feed["lastKillTime"] = $lastKillTime;
 
-				$feed["url"] = "https://zkillboard.com/api/{$entityType}ID/$id/";
+				// This URL should really be user defineable
+				$feed["url"] = "https://beta.eve-kill.net/api/combined/{$entityType}ID/$id/";
 				$feeds[] = $feed;
 			}
 		}

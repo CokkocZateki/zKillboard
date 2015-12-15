@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 $app->notFound(function () use ($app) {
 	$app->redirect("..", 302);
 });
@@ -89,6 +88,7 @@ $app->get("/top/lasthour/", function() use ($app) {
 $app->get("/ranks/:pageType/:subType/", function($pageType, $subType) use ($app) {
 	include( "view/ranks.php" );
 });
+
 $app->get("/top(/:type)(/:page)(/:time+)/", function($type = "weekly", $page = NULL, $time = array()) use ($app) {
 	include( "view/top.php" );
 });
@@ -183,15 +183,7 @@ $app->get("/comments/", function() use ($app) {
 });
 
 // API
-$app->get("/api/stats/:flags+/", function($flags) use ($app) {
-	include( "view/apistats.php" );
-});
-
-$app->get("/api/dna(/:flags+)/", function($flags = null) use ($app) {
-	include( "view/apidna.php" );
-});
-
-$app->get("/api/:input+", function($input) use ($app) {
+$app->get("/api(/:flags+)/", function($flags = NULL) use ($app) {
 	include( "view/api.php" );
 });
 
@@ -265,6 +257,46 @@ $app->map("/merge/:characterID/", function($characterID) use ($app){
 
 	include("view/merge.php");
 })->via("GET", "POST");
+
+// Character
+$app->get("/character/:character(/:pageType)(/:subPages+)/", function($character, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/character.php");
+});
+
+// Corporation
+$app->get("/corporation/:corporation(/:pageType)(/:subPages+)/", function($corporation, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/corporation.php");
+});
+
+// Alliance
+$app->get("/alliance/:alliance(/:pageType)(/:subPages+)/", function($alliance, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/alliance.php");
+});
+
+// Faction
+$app->get("/faction/:faction(/:pageType)(/:subPages+)/", function($faction, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/faction.php");
+});
+
+// System
+$app->get("/system/:solarSystem(/:pageType)(/:subPages+)/", function($solarSystem, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/system.php");
+});
+
+// Region
+$app->get("/region/:region(/:pageType)(/:subPages+)/", function($region, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/region.php");
+});
+
+// Ship
+$app->get("/ship/:shipType(/:pageType)(/:subPages+)/", function($shipType, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/ship.php");
+});
+
+// Group
+$app->get("/group/:group(/:pageType)(/:subPages+)/", function($group, $pageType = "overview", $subPages = array()) use ($app) {
+		include("view/group.php");
+});
 
 // The Overview stuff
 $app->get("/:input+/", function($input) use ($app) {

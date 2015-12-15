@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -81,6 +81,7 @@ class Points
 		834 => array("Stealth Bomber", 80),
 		963 => array("Strategic Cruiser", 750),
 		659 => array("Supercarrier", 6000),
+		1305 => array("Tactical Destroyer", 450),
 		1003 => array("Territorial Claim Units", 500),
 		30 => array("Titan", 20000),
 		473 => array("Tracking Array", 10),

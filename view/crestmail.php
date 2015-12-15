@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -19,15 +19,21 @@
 
 if ($killID > 0 && strlen($hash) == 40)
 {
+	global $debug;
 	$i = Db::execute("insert ignore into zz_crest_killmail (killID, hash) values (:killID, :hash)", array(":killID" => $killID, ":hash" => $hash));
-	if ($i)
+	if($debug)
 	{
-		// Do we already have this mail? If not, announce it
-		$count = Db::queryField("select count(*) count from zz_killmails where killID = :killID", "count", array(":killID" => $killID), 0);
-		if ($count == 0)
-		{
-			$ip = $_SERVER["REMOTE_ADDR"];
-			Log::log("Remote CREST Submission: $killID ($ip)");
-		}
+		$ip = $_SERVER["REMOTE_ADDR"];
+		Log::log("Remote CREST Submission: {$killID} ($ip)");
 	}
+//	if ($i)
+//	{
+//		// Do we already have this mail? If not, announce it
+//		$count = Db::queryField("select count(*) count from zz_killmails where killID = :killID", "count", array(":killID" => $killID), 0);
+//		if ($count == 0)
+//		{
+//			$ip = $_SERVER["REMOTE_ADDR"];
+//			Log::log("Remote CREST Submission: $killID ($ip)");
+//		}
+//	}
 }

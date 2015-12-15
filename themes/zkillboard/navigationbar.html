@@ -5,7 +5,7 @@
 		</div>
 	</div>
 {% endif %}
-<div class="navbar navbar-default">
+<div class="navbar navbar-default navbar-fixed-top">
 	<div class="container">
 		<div class="navbar-header">
 			<button type="button" class="navbar-toggle openMenu" data-toggle="collapse" data-target=".navbar-main">
@@ -102,7 +102,7 @@
 				</li>
 				{% endif %}
 				<li class="hidden-xs hidden-sm"><a href="/post/">Post</a></li>
-				<li><a href="https://map.zkillboard.com/" target="_blank">Map</a></li>
+				<li><a href="https://map.eve-kill.net/" target="_blank">Map</a></li>
 				{% if statslink %}
 					<li class="hidden-xs hidden-sm"><a href="{{ statslink }}">Stats</a></li>
 				{% endif %}
@@ -138,7 +138,7 @@
 								{% endfor %}
 							{% endif %}
 						{% endfor %}
-						<li><a href="https://neweden-dev.com/ZKillboard_API" target="_blank">API</a></li>
+						<li><a href="/api/docs/">API</a></li>
 					</ul>
 				</li>
 				<li class="dropdown">

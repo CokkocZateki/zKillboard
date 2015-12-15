@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -45,6 +45,12 @@ $baseAddr = "%baseaddr%";
 $fullAddr = "http://" . $baseAddr;
 chdir($baseDir);
 
+// Enable the raw killmail parser
+$rawKillmailParser = false;
+
+// Only fetch character if needed
+$enableCharacterFetcher = false;
+
 // SSO
 $ssoEnable = false;
 $ssoServer = "https://login.eveonline.com"; // use https://sisilogin.testeveonline.com for the test server
@@ -80,6 +86,13 @@ $redisPort = "%redisport%";
 // Pheal
 $phealCacheLocation = "%phealcachelocation%";
 
+// StatsD
+$statsd = false;
+$statsdserver = "localhost";
+$statsdport = 8125;
+$statsdnamespace = "zkb.namespace";
+$statsdglobalnamespace = "zkb";
+
 // Cookiiieeeee
 $cookie_name = "zKB";
 $cookie_ssl = false;
@@ -87,7 +100,7 @@ $cookie_time = (3600 * 24 * 30); // 30 days
 $cookie_secret = "%cookiesecret%";
 
 // API
-$apiRequestsPrDay = 17280; // Once every 5 seconds
+$maxRequestsPerHour = 1800; // Once every 2 seconds
 $apiWhiteList = array();
 
 // Stomp
@@ -137,8 +150,8 @@ $config = array(
 	"mode" => ($debug ? "development" : "production"),
 	"debug" => ($debug ? true : false),
 	"log.enabled" => false,
-	"cookies.secret_key" => $cookie_secret
-	);
+	"cookies.secret_key" => $cookie_secret,
+);
 
 $useSemaphores = false;
 $semaphoreModulus = 10;

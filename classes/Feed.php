@@ -1,7 +1,7 @@
 <?php
 
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -32,9 +32,10 @@ class Feed
 		$ip = IP::get();
 
 		$userAgent = @$_SERVER["HTTP_USER_AGENT"];
-
-		if ($debug) Log::log("API Fetch: " . $_SERVER["REQUEST_URI"] . " (" . $ip . " / " . $userAgent . ")");
-		$parameters["limit"] = 200; // Always 200 -- Squizz
+		if(isset($parameters["limit"]) && $parameters["limit"] > 1000)
+			$parameters["limit"] = 1000;
+		if(isset($parameters["page"]))
+			$parameters["limit"] = 1000;
 		$kills = Kills::getKills($parameters, true, false);
 
 		return self::getJSON($kills, $parameters);
@@ -56,23 +57,33 @@ class Feed
 			$killID = $kill["killID"];
 			$jsonText = Killmail::get($killID);
 			$json = json_decode($jsonText, true);
-			if (array_key_exists("no-items", $parameters)) unset($json["items"]);
+			$involvedCount = count($json["attackers"]);
+
+			if (array_key_exists("no-items", $parameters))
+				unset($json["items"]);
+
 			if (array_key_exists("finalblow-only", $parameters))
 			{
-				$involved = count($json["attackers"]);
-				$json["zkb"]["involved"] = $involved;
 				$data = $json["attackers"];
 				unset($json["attackers"]);
 				foreach($data as $attacker)
 					if($attacker["finalBlow"] == "1")
 						$json["attackers"][] = $attacker;
 			}
-			elseif (array_key_exists("no-attackers", $parameters))
-			{
-				$involved = count($json["attackers"]);
-				$json["zkb"]["involved"] = $involved;
+
+			if (array_key_exists("no-attackers", $parameters))
 				unset($json["attackers"]);
-			}
+
+			if(isset($json["_stringValue"]))
+				unset($json["_stringValue"]);
+
+			$json["zkb"]["involved"] = count($involvedCount);
+			if(!isset($json["zkb"]["totalValue"]))
+				$json["zkb"]["totalValue"] = Db::queryField("SELECT total_price FROM zz_participants WHERE killID = :killID AND isVictim = 1", "total_price", array(":killID" => $killID));
+			if(!isset($json["zkb"]["points"]))
+				$json["zkb"]["points"] = Db::queryField("SELECT points FROM zz_participants WHERE killID = :killID AND isVictim = 1", "points", array(":killID" => $killID));
+			if(!isset($json["zkb"]["source"]))
+				$json["zkb"]["source"] = Db::queryField("SELECT source FROM zz_killmails WHERE killID = :killID", "source", array(":killID" => $killID));
 
 			$retValue[] = json_encode($json);
 		}

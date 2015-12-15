@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -46,6 +46,7 @@ class Kills
 		$query = "select distinct ${tablePrefix}.killID from ";
 		$query .= implode(" left join ", array_unique($tables));
 		if (sizeof($tables) == 2) $query .= " on ($tablePrefix.killID = ${tablePrefixOther}.killID) ";
+		if(isset($parameters["index"])) $query .= " use index (". $parameters["index"] . ") ";
 		if (sizeof($andWhereClauses) || sizeof($orWhereClauses)) {
 			$query .= " where ";
 			if (sizeof($orWhereClauses) > 0) {
@@ -56,14 +57,19 @@ class Kills
 			if (sizeof($andWhereClauses)) $query .= implode(" and ", $andWhereClauses);
 		}
 
-		$limit = array_key_exists("limit", $parameters) ? (int)$parameters["limit"] : 50;
+		$limit = array_key_exists("limit", $parameters) ? (int)$parameters["limit"] : 100;
 		$page = array_key_exists("page", $parameters) ? (int)$parameters["page"] : 1;
 		$offset = ($page - 1) * $limit;
 
 		if ($tablePrefix == "w") $orderBy = "w.killID";
 		else $orderBy = array_key_exists("orderBy", $parameters) ? $parameters["orderBy"] : "${tablePrefix}.dttm";
 		$orderDirection = array_key_exists("orderDirection", $parameters) ? $parameters["orderDirection"] : "desc";
+		$orderDirection = "desc"; // only desc
 		$query .= " order by $orderBy $orderDirection limit $offset, $limit";
+
+		// Is isVictim is used, no need to use distinct, since isVictim is already distinct
+		if(stristr($query, "isVictim = '1'"))
+			$query = str_replace("distinct", "", $query);
 
 		$cacheTime = array_key_exists("cacheTime", $parameters) ? (int)$parameters["cacheTime"] : 120;
 		$cacheTime = max(120, $cacheTime);

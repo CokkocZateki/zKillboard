@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -346,6 +346,12 @@ class Info
 		return $shipID;
 	}
 
+	public static function getShipName($id)
+	{
+		$shipName = Db::queryField("SELECT typeName FROM ccp_invTypes WHERE typeID = :id", "typeName", array(":id" => $id), 3600);
+		return $shipName;
+	}
+
 	/**
 	 * Attempt to find the name of a corporation in the corporations table.	If not found then attempt to pull the name via an API lookup.
 	 *
@@ -431,6 +437,7 @@ class Info
 		if ($id <= 0) return;
 		$exists = Db::queryField("select count(1) count from zz_characters where characterID = :id", "count", array(":id" => $id));
 		if ($exists == 0) Db::execute("insert ignore into zz_characters (characterID, name) values (:id, :name)", array(":id" => $id, ":name" => $name));
+		StatsD::increment("characters_Added");
 	}
 
 	/**
@@ -467,10 +474,12 @@ class Info
 	public static function getCharacterAffiliations($characterID)
 	{
 		$pheal = Util::getPheal();
+		if($pheal == NULL) // 904ed most likely
+			return array("corporationID" => NULL, "corporationName" => NULL, "corporationTicker" => NULL, "allianceID" => NULL, "allianceName" => NULL, "allianceTicker" => NULL);
+
 		$pheal->scope = "eve";
 
 		$affiliations = $pheal->CharacterAffiliation(array("ids" => $characterID));
-
 		$corporationID = $affiliations->characters[0]->corporationID;
 		$corporationName = $affiliations->characters[0]->corporationName;
 		$allianceID = $affiliations->characters[0]->allianceID;
@@ -654,6 +663,7 @@ class Info
 		if ($id <= 0) return;
 		$exists = Db::queryField("select count(1) count from zz_corporations where corporationID = :id", "count", array(":id" => $id));
 		if ($exists == 0) Db::execute("insert ignore into zz_corporations (corporationID, name) values (:id, :name)", array(":id" => $id, ":name" => $name));
+		StatsD::increment("corporation_Added");
 	}
 
 	/**
@@ -801,9 +811,8 @@ class Info
 					if (!isset($element["groupName"])) $element["groupName"] = self::getGroupName($element["groupID"]);
 					break;
 				case "groupID":
-					global $loadGroupShips; // ugh
 					if (!isset($element["groupName"])) $element["groupName"] = self::getGroupName($value);
-					if ($loadGroupShips && !isset($element["groupShips"]) && !isset($element["noRecursion"])) $element["groupShips"] = Db::query("select typeID as shipTypeID, typeName as shipName, raceID, 1 as noRecursion from ccp_invTypes where groupID = :id and (groupID = 29 or (published = 1 and marketGroupID is not null)) order by raceID, marketGroupID, typeName", array (":id" => $value), 3600);
+					if (!isset($element["groupShips"]) && !isset($element["noRecursion"])) $element["groupShips"] = Db::query("select typeID as shipTypeID, typeName as shipName, raceID, 1 as noRecursion from ccp_invTypes where groupID = :id and (groupID = 29 or (published = 1 and marketGroupID is not null)) order by raceID, marketGroupID, typeName", array (":id" => $value), 3600);
 					break;
 				case "executorCorpID":
 					$element["executorCorpName"] = self::getCorpName($value);

@@ -1,6 +1,6 @@
 <?php
 /* zKillboard
- * Copyright (C) 2012-2013 EVE-KILL Team and EVSCO.
+ * Copyright (C) 2012-2015 EVE-KILL Team and EVSCO.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -31,10 +31,11 @@ class cli_warFetcher implements cliCommand
 
 	public function execute($parameters, $db)
 	{
+		if (Util::isMaintenanceMode()) return;
 		$page = Db::queryField("select floor(count(*) / 2000) page from zz_wars", "page", array(), 0);
 		if ($page == 0) $page = 1;
 
-		$next = "http://public-crest.eveonline.com/wars/?page=$page";
+		$next = "https://public-crest.eveonline.com/wars/?page=$page";
 		do {
 			$perrywars = Perry::fromUrl($next);
 			$next = @$perrywars->next->href;
